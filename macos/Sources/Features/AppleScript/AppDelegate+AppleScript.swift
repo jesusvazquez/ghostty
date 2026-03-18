@@ -193,7 +193,8 @@ extension NSApplication {
 
         let controller = TerminalController.newWindow(
             appDelegate.ghostty,
-            withBaseConfig: baseConfig
+            withBaseConfig: baseConfig,
+            activate: false
         )
         let createdWindowID = ScriptWindow.stableID(primaryController: controller)
 
@@ -266,7 +267,8 @@ extension NSApplication {
         guard let createdController = TerminalController.newTab(
             appDelegate.ghostty,
             from: parentWindow,
-            withBaseConfig: baseConfig
+            withBaseConfig: baseConfig,
+            activate: false
         ) else {
             command.scriptErrorNumber = errAEEventFailed
             command.scriptErrorString = "Failed to create tab."

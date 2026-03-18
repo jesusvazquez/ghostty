@@ -223,7 +223,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     static func newWindow(
         _ ghostty: Ghostty.App,
         withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil,
-        withParent explicitParent: NSWindow? = nil
+        withParent explicitParent: NSWindow? = nil,
+        activate: Bool = true
     ) -> TerminalController {
         let c = TerminalController.init(ghostty, withBaseConfig: baseConfig)
 
@@ -268,9 +269,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 }
             }
 
-            // All new_window actions force our app to be active, so that the new
-            // window is focused and visible.
-            NSApp.activate(ignoringOtherApps: true)
+            // Activate the app so the new window is focused and visible.
+            // Callers such as AppleScript handlers may pass `activate: false`
+            // to avoid stealing focus from the calling application.
+            if activate {
+                NSApp.activate(ignoringOtherApps: true)
+            }
         }
 
         // Setup our undo
@@ -370,13 +374,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     static func newTab(
         _ ghostty: Ghostty.App,
         from parent: NSWindow? = nil,
-        withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil
+        withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil,
+        activate: Bool = true
     ) -> TerminalController? {
         // Making sure that we're dealing with a TerminalController. If not,
         // then we just create a new window.
         guard let parent,
               let parentController = parent.windowController as? TerminalController else {
-            return newWindow(ghostty, withBaseConfig: baseConfig, withParent: parent)
+            return newWindow(ghostty, withBaseConfig: baseConfig, withParent: parent, activate: activate)
         }
 
         // If our parent is in non-native fullscreen, then new tabs do not work.
@@ -445,9 +450,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             controller.showWindow(self)
             window.makeKeyAndOrderFront(self)
 
-            // We also activate our app so that it becomes front. This may be
-            // necessary for the dock menu.
-            NSApp.activate(ignoringOtherApps: true)
+            // Activate the app so it becomes front. This may be necessary
+            // for the dock menu. AppleScript handlers pass `activate: false`
+            // to avoid stealing focus from the calling application.
+            if activate {
+                NSApp.activate(ignoringOtherApps: true)
+            }
         }
 
         // It takes an event loop cycle until the macOS tabGroup state becomes
