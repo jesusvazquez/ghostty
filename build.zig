@@ -38,6 +38,9 @@ pub fn build(b: *std.Build) !void {
         b,
         file_version orelse app_zon_version,
     );
+
+    checkXcodeVersion(b);
+
     const test_filters = b.option(
         [][]const u8,
         "test-filter",
@@ -368,4 +371,72 @@ pub fn build(b: *std.Build) !void {
     } else {
         try translations_step.addError("cannot update translations when i18n is disabled", .{});
     }
+}
+
+/// Detect Xcode versions incompatible with Zig 0.15.x on macOS.
+/// Xcode > 26.3 ships SDK .tbd files that Zig's MachO linker cannot parse,
+/// causing undefined symbol errors for basic libc functions.
+/// See: https://github.com/ghostty-org/ghostty/issues/11991
+fn checkXcodeVersion(b: *std.Build) void {
+    if (comptime !builtin.os.tag.isDarwin()) return;
+    if (comptime builtin.zig_version.minor != 15) return;
+
+    const version = detectToolchainVersion(b) orelse return;
+    const max_supported = std.SemanticVersion{ .major = 26, .minor = 3, .patch = 0 };
+    if (version.order(max_supported) != .gt) return;
+
+    std.log.warn(
+        \\Detected Xcode/CLT {d}.{d} which is incompatible with Zig 0.15.x.
+        \\Xcode versions above 26.3 ship SDK changes that cause linker failures.
+        \\
+        \\To fix this, downgrade to Xcode 26.3:
+        \\  1. Download Xcode 26.3 from https://developer.apple.com/download/all/
+        \\  2. Extract and move: mv Xcode.app /Applications/Xcode_26.3.app
+        \\  3. Switch: sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
+        \\  4. Clear caches: rm -rf ~/.cache/zig .zig-cache
+        \\
+        \\See: https://github.com/ghostty-org/ghostty/issues/11991
+    , .{ version.major, version.minor });
+}
+
+fn detectToolchainVersion(b: *std.Build) ?std.SemanticVersion {
+    var exit_code: u8 = 0;
+
+    // Try xcodebuild -version (Common for full Xcode installs)
+    if (b.runAllowFail(
+        &.{ "xcodebuild", "-version" },
+        &exit_code,
+        .Ignore,
+    )) |raw| {
+        if (parseXcodebuildVersion(raw)) |v| return v;
+    } else |_| {}
+
+    // Fall back to xcrun --show-sdk-version (Most common case for users that did not install xcode directly).
+    if (b.runAllowFail(
+        &.{ "xcrun", "--show-sdk-version" },
+        &exit_code,
+        .Ignore,
+    )) |raw| {
+        if (parseMajorMinor(std.mem.trimRight(u8, raw, " \r\n"))) |v| return v;
+    } else |_| {}
+
+    return null;
+}
+
+/// Parse "Xcode 26.4" or "Xcode 26.4.1" from xcodebuild -version output.
+fn parseXcodebuildVersion(raw: []const u8) ?std.SemanticVersion {
+    const first_line = if (std.mem.indexOfScalar(u8, raw, '\n')) |i| raw[0..i] else raw;
+    const trimmed = std.mem.trimRight(u8, first_line, " \r");
+    const prefix = "Xcode ";
+    if (!std.mem.startsWith(u8, trimmed, prefix)) return null;
+    return parseMajorMinor(trimmed[prefix.len..]);
+}
+
+fn parseMajorMinor(version_str: []const u8) ?std.SemanticVersion {
+    const dot = std.mem.indexOfScalar(u8, version_str, '.') orelse return null;
+    const major = std.fmt.parseInt(usize, version_str[0..dot], 10) catch return null;
+    const rest = version_str[dot + 1 ..];
+    const minor_end = std.mem.indexOfScalar(u8, rest, '.') orelse rest.len;
+    const minor = std.fmt.parseInt(usize, rest[0..minor_end], 10) catch return null;
+    return .{ .major = major, .minor = minor, .patch = 0 };
 }
